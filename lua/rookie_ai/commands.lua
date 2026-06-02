@@ -2,6 +2,15 @@ local M = {}
 
 local term_bufnr = nil
 
+local function open_term_on_right(bufnr)
+  vim.cmd("botright vs")
+  if bufnr then
+    vim.api.nvim_win_set_buf(0, bufnr)
+  else
+    vim.cmd("term")
+  end
+end
+
 function M.toggle_term()
   if term_bufnr and vim.api.nvim_buf_is_valid(term_bufnr) then
     -- Terminal exists, find if it's open in any window
@@ -17,12 +26,11 @@ function M.toggle_term()
     -- If the buffer exists but isn't visible in the current tabpage,
     -- open a vertical split and attach the buffer.
     if not win_found then
-      vim.cmd("vs")
-      vim.api.nvim_win_set_buf(0, term_bufnr)
+      open_term_on_right(term_bufnr)
     end
   else
     -- Terminal does not exist, create a new one
-    vim.cmd("vs | term")
+    open_term_on_right()
     term_bufnr = vim.api.nvim_get_current_buf()
   end
 end
@@ -67,8 +75,7 @@ function M.add_lines(opts)
 
     -- If not visible, open a vertical split and attach the buffer
     if not win_found then
-      vim.cmd("vs")
-      vim.api.nvim_win_set_buf(0, term_bufnr)
+      open_term_on_right(term_bufnr)
     end
 
     -- Send the text to the terminal and enter insert mode
