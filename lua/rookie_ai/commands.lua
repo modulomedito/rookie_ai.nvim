@@ -1,6 +1,7 @@
 local M = {}
 
-local term_bufnr = nil
+local terminals = {}
+local current_label = nil
 
 local function open_term_on_right(bufnr)
     vim.cmd("botright vs")
@@ -11,28 +12,103 @@ local function open_term_on_right(bufnr)
     end
 end
 
-function M.toggle_term()
-    if term_bufnr and vim.api.nvim_buf_is_valid(term_bufnr) then
-        -- Terminal exists, find if it's open in any window
+--- Focus the terminal window for a given bufnr, opening a split if needed,
+--- then send text and enter Insert mode.
+local function focus_and_send(bufnr, text)
+    local win_found = false
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if vim.api.nvim_win_get_buf(win) == bufnr then
+            vim.api.nvim_set_current_win(win)
+            win_found = true
+            break
+        end
+    end
+
+    if not win_found then
+        open_term_on_right(bufnr)
+    end
+
+    local chan = vim.bo[bufnr].channel
+    if chan and chan ~= 0 then
+        vim.api.nvim_chan_send(chan, text)
+        vim.cmd("startinsert")
+    else
+        vim.notify("Rookie AI: Terminal channel not found", vim.log.levels.ERROR)
+    end
+end
+
+local function validate_terminal(label)
+    local bufnr = terminals[label]
+    if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+        return nil
+    end
+    return bufnr
+end
+
+function M.toggle_term(opts)
+    local label = opts.args
+    if not label or label == "" or not label:match("^[asdf]$") then
+        vim.notify(
+            "Rookie AI: Label must be one of: a, s, d, f",
+            vim.log.levels.WARN
+        )
+        return
+    end
+
+    local bufnr = validate_terminal(label)
+    if bufnr then
+        -- Terminal exists, find or re-open its window
         local win_found = false
         for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-            if vim.api.nvim_win_get_buf(win) == term_bufnr then
+            if vim.api.nvim_win_get_buf(win) == bufnr then
                 vim.api.nvim_set_current_win(win)
                 win_found = true
                 break
             end
         end
 
-        -- If the buffer exists but isn't visible in the current tabpage,
-        -- open a vertical split and attach the buffer.
         if not win_found then
-            open_term_on_right(term_bufnr)
+            open_term_on_right(bufnr)
         end
     else
-        -- Terminal does not exist, create a new one
+        -- Create a new terminal
         open_term_on_right()
-        term_bufnr = vim.api.nvim_get_current_buf()
+        terminals[label] = vim.api.nvim_get_current_buf()
     end
+
+    current_label = label
+end
+
+function M.add_file()
+    -- 1. Get relative path
+    local rel_path = vim.fn.expand("%:.")
+    if rel_path == "" then
+        vim.notify("Rookie AI: Buffer has no name", vim.log.levels.WARN)
+        return
+    end
+
+    -- 2. Check a terminal has been selected
+    if not current_label then
+        vim.notify(
+            "Rookie AI: No terminal selected. Toggle one with <leader>tm{a,s,d,f} first.",
+            vim.log.levels.WARN
+        )
+        return
+    end
+
+    -- 3. Validate the terminal buffer
+    local bufnr = validate_terminal(current_label)
+    if not bufnr then
+        vim.notify(
+            "Rookie AI: Terminal '" .. current_label .. "' is closed. Please toggle it again.",
+            vim.log.levels.WARN
+        )
+        return
+    end
+
+    -- 4. Compose and send
+    local quote = string.format("@%s ", rel_path)
+    focus_and_send(bufnr, quote)
 end
 
 function M.add_lines(opts)
@@ -48,11 +124,30 @@ function M.add_lines(opts)
         return
     end
 
-    -- 3. Get line range
+    -- 3. Check a terminal has been selected
+    if not current_label then
+        vim.notify(
+            "Rookie AI: No terminal selected. Toggle one with <leader>tm{a,s,d,f} first.",
+            vim.log.levels.WARN
+        )
+        return
+    end
+
+    -- 4. Validate the terminal buffer
+    local bufnr = validate_terminal(current_label)
+    if not bufnr then
+        vim.notify(
+            "Rookie AI: Terminal '" .. current_label .. "' is closed. Please toggle it again.",
+            vim.log.levels.WARN
+        )
+        return
+    end
+
+    -- 5. Get line range
     local line_start = opts.line1
     local line_end = opts.line2
 
-    -- 4. Compose format
+    -- 6. Compose format
     local range_str
     if line_start == line_end then
         range_str = string.format(":%d", line_start)
@@ -61,44 +156,26 @@ function M.add_lines(opts)
     end
     local quote = string.format("@%s %s ", rel_path, range_str)
 
-    -- 5. Paste to existing terminal
-    if not term_bufnr or not vim.api.nvim_buf_is_valid(term_bufnr) then
-        vim.notify(
-            "Rookie AI: No active terminal. Please run RkAiTermToggle first.",
-            vim.log.levels.WARN
-        )
-        return
-    end
-
-    local chan = vim.bo[term_bufnr].channel
-    if chan and chan ~= 0 then
-        -- Focus the terminal window if it's visible
-        local win_found = false
-        for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-            if vim.api.nvim_win_get_buf(win) == term_bufnr then
-                vim.api.nvim_set_current_win(win)
-                win_found = true
-                break
-            end
-        end
-
-        -- If not visible, open a vertical split and attach the buffer
-        if not win_found then
-            open_term_on_right(term_bufnr)
-        end
-
-        -- Send the text to the terminal and enter insert mode
-        vim.api.nvim_chan_send(chan, quote)
-        vim.cmd("startinsert")
-    else
-        vim.notify("Rookie AI: Terminal channel not found", vim.log.levels.ERROR)
-    end
+    focus_and_send(bufnr, quote)
 end
 
 function M.setup()
-    vim.api.nvim_create_user_command("RkAiTermToggle", function()
-        M.toggle_term()
-    end, { desc = "Toggle Rookie AI Terminal" })
+    local labels = { "a", "s", "d", "f" }
+
+    for _, label in ipairs(labels) do
+        vim.api.nvim_create_user_command(
+            "RkAiTermToggle" .. label:upper(),
+            function(opts)
+                -- Re-package args to match the old command interface
+                M.toggle_term({ args = label })
+            end,
+            { desc = "Toggle Rookie AI Terminal '" .. label .. "'" }
+        )
+    end
+
+    vim.api.nvim_create_user_command("RkAiAddFile", function()
+        M.add_file()
+    end, { desc = "Add current file relative path to AI terminal" })
 
     vim.api.nvim_create_user_command("RkAiAddLines", function(opts)
         M.add_lines(opts)
