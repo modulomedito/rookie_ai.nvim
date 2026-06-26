@@ -2,9 +2,9 @@ local M = {}
 
 local toggle_commands = {
     a = "RkAiTermToggleA",
-    s = "RkAiTermToggleS",
+    b = "RkAiTermToggleB",
+    c = "RkAiTermToggleC",
     d = "RkAiTermToggleD",
-    f = "RkAiTermToggleF",
 }
 
 function M.setup()

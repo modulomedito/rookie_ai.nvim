@@ -47,9 +47,9 @@ end
 
 function M.toggle_term(opts)
     local label = opts.args
-    if not label or label == "" or not label:match("^[asdf]$") then
+    if not label or label == "" or not label:match("^[abcd]$") then
         vim.notify(
-            "Rookie AI: Label must be one of: a, s, d, f",
+            "Rookie AI: Label must be one of: a, b, c, d",
             vim.log.levels.WARN
         )
         return
@@ -127,7 +127,7 @@ function M.add_lines(opts)
     -- 3. Check a terminal has been selected
     if not current_label then
         vim.notify(
-            "Rookie AI: No terminal selected. Toggle one with <leader>tm{a,s,d,f} first.",
+            "Rookie AI: No terminal selected. Toggle one with <leader>tm{a,b,c,d} first.",
             vim.log.levels.WARN
         )
         return
@@ -160,7 +160,7 @@ function M.add_lines(opts)
 end
 
 function M.setup()
-    local labels = { "a", "s", "d", "f" }
+    local labels = { "a", "b", "c", "d" }
 
     for _, label in ipairs(labels) do
         vim.api.nvim_create_user_command(
