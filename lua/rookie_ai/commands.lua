@@ -79,9 +79,25 @@ function M.toggle_term(opts)
     current_label = label
 end
 
+--- Resolve the path to add: in NvimTree, the file under the cursor;
+--- elsewhere, the current buffer's relative path.
+local function resolve_path()
+    if vim.bo.filetype == "NvimTree" then
+        local ok, api = pcall(require, "nvim-tree.api")
+        if ok then
+            local node = api.tree.get_node_under_cursor()
+            if node and node.absolute_path then
+                return vim.fn.fnamemodify(node.absolute_path, ":.")
+            end
+        end
+        return ""
+    end
+    return vim.fn.expand("%:.")
+end
+
 function M.add_file()
     -- 1. Get relative path
-    local rel_path = vim.fn.expand("%:.")
+    local rel_path = resolve_path()
     if rel_path == "" then
         vim.notify("Rookie AI: Buffer has no name", vim.log.levels.WARN)
         return
@@ -112,6 +128,11 @@ function M.add_file()
 end
 
 function M.add_lines(opts)
+    -- NvimTree has no line range to add; reference the file under the cursor
+    if vim.bo.filetype == "NvimTree" then
+        return M.add_file()
+    end
+
     -- 1. Save current buffer if modified
     if vim.bo.modified then
         vim.cmd("silent! write")
