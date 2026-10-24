@@ -45,6 +45,60 @@ local function validate_terminal(label)
     return bufnr
 end
 
+local function is_terminal_buf(bufnr)
+    return vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buftype == "terminal"
+end
+
+--- Find any terminal buffer, including ones that were not opened via the
+--- A/B/C/D labels (e.g. a plain `:terminal` the user started themselves).
+local function find_any_terminal()
+    local current = vim.api.nvim_get_current_buf()
+    if is_terminal_buf(current) then
+        return current
+    end
+
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        local bufnr = vim.api.nvim_win_get_buf(win)
+        if is_terminal_buf(bufnr) then
+            return bufnr
+        end
+    end
+
+    local best, best_used = nil, -1
+    for _, info in ipairs(vim.fn.getbufinfo()) do
+        if is_terminal_buf(info.bufnr) and info.lastused > best_used then
+            best, best_used = info.bufnr, info.lastused
+        end
+    end
+    return best
+end
+
+--- Resolve the terminal to send text to: the labeled terminal when one is
+--- selected and still open, otherwise any existing terminal buffer.
+--- Returns the bufnr, or nil plus a warning message.
+local function resolve_terminal()
+    if current_label then
+        local bufnr = validate_terminal(current_label)
+        if bufnr then
+            return bufnr
+        end
+    end
+
+    local bufnr = find_any_terminal()
+    if bufnr then
+        return bufnr
+    end
+
+    if current_label then
+        return nil,
+            "Rookie AI: Terminal '"
+                .. current_label
+                .. "' is closed. Please toggle it again."
+    end
+    return nil,
+        "Rookie AI: No terminal found. Toggle one with <leader>tm{a,b,c,d} first."
+end
+
 function M.toggle_term(opts)
     local label = opts.args
     if not label or label == "" or not label:match("^[abcd]$") then
@@ -103,26 +157,14 @@ function M.add_file()
         return
     end
 
-    -- 2. Check a terminal has been selected
-    if not current_label then
-        vim.notify(
-            "Rookie AI: No terminal selected. Toggle one with <leader>tm{a,s,d,f} first.",
-            vim.log.levels.WARN
-        )
-        return
-    end
-
-    -- 3. Validate the terminal buffer
-    local bufnr = validate_terminal(current_label)
+    -- 2. Resolve the target terminal (labeled one, else any terminal)
+    local bufnr, err = resolve_terminal()
     if not bufnr then
-        vim.notify(
-            "Rookie AI: Terminal '" .. current_label .. "' is closed. Please toggle it again.",
-            vim.log.levels.WARN
-        )
+        vim.notify(err, vim.log.levels.WARN)
         return
     end
 
-    -- 4. Compose and send
+    -- 3. Compose and send
     local quote = string.format("@%s ", rel_path)
     focus_and_send(bufnr, quote)
 end
@@ -145,30 +187,18 @@ function M.add_lines(opts)
         return
     end
 
-    -- 3. Check a terminal has been selected
-    if not current_label then
-        vim.notify(
-            "Rookie AI: No terminal selected. Toggle one with <leader>tm{a,b,c,d} first.",
-            vim.log.levels.WARN
-        )
-        return
-    end
-
-    -- 4. Validate the terminal buffer
-    local bufnr = validate_terminal(current_label)
+    -- 3. Resolve the target terminal (labeled one, else any terminal)
+    local bufnr, err = resolve_terminal()
     if not bufnr then
-        vim.notify(
-            "Rookie AI: Terminal '" .. current_label .. "' is closed. Please toggle it again.",
-            vim.log.levels.WARN
-        )
+        vim.notify(err, vim.log.levels.WARN)
         return
     end
 
-    -- 5. Get line range
+    -- 4. Get line range
     local line_start = opts.line1
     local line_end = opts.line2
 
-    -- 6. Compose format
+    -- 5. Compose format
     local range_str
     if line_start == line_end then
         range_str = string.format(":%d", line_start)
