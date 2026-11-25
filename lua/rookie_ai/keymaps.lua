@@ -26,7 +26,7 @@ function M.setup()
 
     vim.keymap.set(
         "n",
-        "<leader>aif",
+        "<leader>af",
         "<cmd>RkAiAddFile<CR>",
         { desc = "Add file path to AI terminal" }
     )
