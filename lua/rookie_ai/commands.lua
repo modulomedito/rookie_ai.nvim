@@ -3,6 +3,18 @@ local M = {}
 local terminals = {}
 local current_label = nil
 
+local label_by_index = { "a", "b", "c", "d" }
+
+local function resolve_label(arg)
+    if not arg or arg == "" then
+        return nil
+    end
+    if arg:match("^[1-4]$") then
+        return label_by_index[tonumber(arg)]
+    end
+    return nil
+end
+
 local function open_term_on_right(bufnr)
     vim.cmd("botright vs")
     if bufnr then
@@ -73,10 +85,22 @@ local function find_any_terminal()
     return best
 end
 
---- Resolve the terminal to send text to: the labeled terminal when one is
---- selected and still open, otherwise any existing terminal buffer.
+--- Resolve the terminal to send text to: an explicitly requested label when
+--- given, otherwise the selected labeled terminal when still open, otherwise
+--- any existing terminal buffer.
 --- Returns the bufnr, or nil plus a warning message.
-local function resolve_terminal()
+local function resolve_terminal(label)
+    if label then
+        local bufnr = validate_terminal(label)
+        if bufnr then
+            return bufnr
+        end
+        return nil,
+            "Rookie AI: Terminal '"
+                .. label
+                .. "' is closed. Please toggle it again."
+    end
+
     if current_label then
         local bufnr = validate_terminal(current_label)
         if bufnr then
@@ -96,7 +120,14 @@ local function resolve_terminal()
                 .. "' is closed. Please toggle it again."
     end
     return nil,
-        "Rookie AI: No terminal found. Toggle one with <leader>tm{a,b,c,d} first."
+        "Rookie AI: No terminal found. Toggle one with <leader>t1..t4 first."
+end
+
+function M.get_current_index()
+    if not current_label or not validate_terminal(current_label) then
+        return nil
+    end
+    return current_label:byte() - string.byte("a") + 1
 end
 
 function M.toggle_term(opts)
@@ -187,8 +218,9 @@ function M.add_lines(opts)
         return
     end
 
-    -- 3. Resolve the target terminal (labeled one, else any terminal)
-    local bufnr, err = resolve_terminal()
+    -- 3. Resolve the target terminal (explicit label, else labeled/any terminal)
+    local label = resolve_label(opts.args)
+    local bufnr, err = resolve_terminal(label)
     if not bufnr then
         vim.notify(err, vim.log.levels.WARN)
         return
@@ -230,7 +262,11 @@ function M.setup()
 
     vim.api.nvim_create_user_command("RkAiAddLines", function(opts)
         M.add_lines(opts)
-    end, { range = true, desc = "Add selected lines to AI terminal" })
+    end, {
+        range = true,
+        nargs = "?",
+        desc = "Add selected lines to AI terminal 1-4 (defaults to last toggled)",
+    })
 end
 
 return M
